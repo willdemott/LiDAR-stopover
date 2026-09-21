@@ -34,12 +34,14 @@ library(patchwork)
 ##################################################################
 # LiDAR DATA
 {
+#p95_file <- rast("C:/Users/willd/Box/LiDAR/IA_lidar_4_freda/mosaic_epsg6344_p95_10m.tif")
+
 p95_file <- rast("C:/Users/willd/Desktop/Everything/WLFW Project/LiDAR-stopover/Northeast_epsg6350_p95_10m_rounded.tif")
 
 nlcd <- rast("C:/Users/willd/Desktop/Everything/GIS 5453/GIS_5453/NLCD_TIFS/Annual_NLCD_LndCov_2024_CU_C1V1.tif")
 
 # crop NLCD in its own CRS then align to the 10 m LiDAR grid
-foot <- project(as.polygons(ext(p95_file), crs = crs(p95_file)), crs(nlcd), filename = "C:/Users/willd/Desktop/Everything/WLFW Project/LiDAR-stopover/foot.tif", overwrite = T)
+foot <- project(as.polygons(ext(p95_file), crs = crs(p95_file)), crs(nlcd))
 nlcd <- crop(nlcd, foot)
 
 # Forest-only
@@ -53,94 +55,129 @@ p95      <- aggregate(p95_for, 30, fun = "mean", na.rm = T)
 sdp95    <- aggregate(p95_for, 30, fun = "sd",   na.rm = T)
 }
 ##################################################################
-# RADAR DATA
+# RADAR STATIONS
 {
 box_dir <- "C:/Users/willd/Box/"
 setwd(box_dir)
 
-# Every station in the list
 stations <- unique(read.csv("./DFF_resources/DFF_radar_BCR_list.csv")$radar)
+fp <- \(s, season) sprintf("./DFF_ppi_years/%s_2013-24_%s_bioRad_ppi_years_AGL_inverse_Refit.tif", s, season)
 
-spring_files <- sprintf("./DFF_ppi_years/%s_2013-24_%s_bioRad_ppi_years_AGL_inverse_Refit.tif", stations, "spring")
-Test<-rast(spring_files[1])
-autumn_files <- sprintf("./DFF_ppi_years/%s_2013-24_%s_bioRad_ppi_years_AGL_inverse_Refit.tif", stations, "autumn")
+sr <- lapply(stations, \(s) rast(fp(s, "spring")))
+cen <- vect(data.frame(sta = stations, x = sapply(sr, \(r) mean(ext(r)[1:2])), y = sapply(sr, \(r) mean(ext(r)[3:4]))), geom = c("x", "y"), crs = crs(sr[[1]]))
 
-# VIR mosaic onto that grid; mean(rast(f)...) averages across all years, while fun = "mean" averages overlapping values in the mosaic
-spring_mean <- mosaic(sprc(lapply(spring_files, \(f) mean(rast(f), na.rm = T))), fun = "mean")
-autumn_mean <- mosaic(sprc(lapply(autumn_files, \(f) mean(rast(f), na.rm = T))), fun = "mean")
+# station ID layer on the LiDAR grid: each cell owned by its nearest station
+foot_p <- as.polygons(ext(p95), crs = crs(p95))
+vor <- project(voronoi(cen, bnd = as.polygons(ext(cen) + 1e6, crs = crs(cen))), crs(p95))
+sta <- rasterize(vor, p95, field = "sta")
 
-# 2024 only
-spring_mean <- mosaic(sprc(lapply(spring_files, \(f) rast(f)[["Mean_2024"]])), fun = "mean")
-autumn_mean <- mosaic(sprc(lapply(autumn_files, \(f) rast(f)[["Mean_2024"]])), fun = "mean")
-
-# Align CRS, crop to LiDAR area
-spring_vir <- project(spring_mean, p95, method = "bilinear")
-autumn_vir <- project(autumn_mean, p95, method = "bilinear")
+keep <- vor$sta[is.related(vor, foot_p, "intersects")]
+mos <- stations[sapply(sr, \(r) !is.null(intersect(ext(r), ext(project(foot_p, crs(r))))))]
 }
 ##################################################################
-# Stack and turn into df for modeling
+# Stack, stopover responses, and df for modeling
 {
-spring_stk <- c(spring_vir, p95, sdp95)
-autumn_stk <- c(autumn_vir, p95, sdp95)
+hotc <- \(r) c(sum(rast(Map(\(l, q) l >= q, as.list(r), unlist(global(r, \(v, ...) quantile(v, 0.9, na.rm = T))))), na.rm = T), sum(!is.na(r)))
 
-names(spring_stk) <- names(autumn_stk) <- c("vir", "p95", "sdp95")
+build <- function(season) {
+  yr <- project(mosaic(sprc(lapply(fp(mos, season), rast)), fun = "mean"), p95, method = "bilinear")
+  base <- c(mean(yr, na.rm = T), p95, sdp95, sta)
+  names(base) <- c("vir", "p95", "sdp95", "sta")
+  ok <- noNA(base, falseNA = T)
+  yr <- mask(yr, ok)
+  
+  # range-wide: top 10% of model cells within each year
+  hot <- hotc(yr)
+  
+  # within-station: top 10% of that station's model cells within each year
+  hots <- mosaic(sprc(lapply(keep, \(s) hotc(mask(project(rast(fp(s, season)), p95, method = "bilinear"), mask(ok, vor[vor$sta == s, ]))))), fun = "max")
+  
+  out <- mask(c(base, hot, hots), ok)
+  names(out) <- c("vir", "p95", "sdp95", "sta", "hot", "nyr", "hots", "nyrs")
+  
+  d <- as.data.frame(out, xy = T, na.rm = T)
+  d$sta <- factor(d$sta)
+  list(r = out, d = d)
+}
 
-# keep only cells where every layer is valid
-spring_stk <- mask(spring_stk, noNA(spring_stk, falseNA = T))
-autumn_stk <- mask(autumn_stk, noNA(autumn_stk, falseNA = T))
+spring <- build("spring")
+autumn <- build("autumn")
+
+spring_d <- spring$d
+autumn_d <- autumn$d
 
 grn <- colorRampPalette(c("#c7e9c0", "#74c476", "#31a354", "#00441b"))
 
 # Quick map to visualize our data spatially
-vir_cap <- clamp(spring_stk[["vir"]], upper = 7000, values = FALSE)
+vir_cap <- clamp(spring$r[["vir"]], upper = 7000, values = FALSE)
 mapview(vir_cap, layer.name = "Spring VIR",
         col.regions = viridis, na.color = "transparent") +
-  mapview(spring_stk[["p95"]], layer.name = "Canopy height p95 (m)",
+  mapview(spring$r[["p95"]], layer.name = "Canopy height p95 (m)",
           col.regions = grn, na.color = "transparent") +
-  mapview(spring_stk[["sdp95"]], layer.name = "Canopy height SD (m)",
-          col.regions = viridis, na.color = "transparent")
+  mapview(spring$r[["sdp95"]], layer.name = "Canopy height SD (m)",
+          col.regions = viridis, na.color = "transparent") +
+  mapview(spring$r[["hot"]], layer.name = "Hot years (range-wide)",
+          col.regions = magma, na.color = "transparent") +
+  mapview(spring$r[["hots"]], layer.name = "Hot years (within-station)",
+          col.regions = magma, na.color = "transparent")
 
-spring_d <- as.data.frame(spring_stk, xy = T, na.rm = T)
-autumn_d <- as.data.frame(autumn_stk, xy = T, na.rm = T)
-
-nrow(spring_d) 
+nrow(spring_d)
 nrow(autumn_d)
-}
-##################################################################
-# Create alternative stopover responses
-{
-thr <- global(spring_mean, \(v, ...) quantile(v, 0.90, na.rm = TRUE))[[1]]
-  
-spring_d$hot <- as.integer(spring_d$vir >= thr)
-  
-mean(spring_d$hot)
 }
 ##################################################################
 # Model
 {
-# Remove outliers
-spring_d <- spring_d[spring_d$vir <= 7000, ]
+vir_cap <- 7000
 
-spring_m_bam <- bam(vir ~ s(p95, k = 20) + s(sdp95, k = 20) + s(x, y, k = 800), family = Gamma(link = "log"), data = spring_d, method = "fREML", discrete = T)
-summary(spring_m_bam)
+sm <- \(f, fam, d) bam(f, family = fam, data = d, weights = wt, method = "fREML", discrete = T)
 
-spring_m_hot <- bam(hot ~ s(p95, k = 20) + s(sdp95, k = 20) + s(x, y, k = 800), family = binomial, data = spring_d, method = "fREML", discrete = T)
-summary(spring_m_hot)
+rhs <- "s(p95, k = 20) + s(sdp95, k = 20) + s(sta, bs = 're') + s(x, y, k = 800)"
+ff <- \(lhs) as.formula(paste(lhs, "~", rhs))
+f_vir <- ff("vir")
+f_hot <- ff("hot / nyr")
+f_hots <- ff("hots / nyrs")
+
+mods <- lapply(list(spring = spring_d, autumn = autumn_d), \(d) {
+  dv <- transform(d[d$vir > 0 & d$vir <= vir_cap, ], wt = 1)
+  dh <- transform(d[d$nyr > 0, ], wt = nyr)
+  ds <- transform(d[d$nyrs > 0, ], wt = nyrs)
+  list(vir = sm(f_vir, Gamma(link = "log"), dv), hot = sm(f_hot, binomial, dh), hots = sm(f_hots, binomial, ds))
+})
+
+lapply(mods, \(m) lapply(m, summary))
 }
 #################################################################
 # Inspect Models
 
-g1 <- plot_predictions(spring_m_bam, condition = "p95", type = "response") +
-  labs(x = "p95 (m)", y = "Predicted VIR")
+ylab <- c(vir = "Predicted VIR", hot = "P(hot year)", hots = "P(hot year, within-station)")
 
-g2 <- plot_predictions(spring_m_bam, condition = "sdp95", type = "response") +
-  labs(x = "sd p95 (m)", y = "Predicted VIR")
+pnl <- function(s, k, v) {
+  p <- plot_predictions(mods[[s]][[k]], condition = v, type = "response") + labs(x = paste(v, "(m)"), y = ylab[[k]])
+  if (k != "vir") p <- p + scale_y_continuous(labels = scales::percent)
+  p
+}
 
-h1 <- plot_predictions(spring_m_hot, condition = "p95", type = "response") +
-  labs(x = "p95 (m)", y = "P(hotspot)")
+grd <- expand.grid(v = c("p95", "sdp95"), k = names(ylab), stringsAsFactors = F)
 
-h2 <- plot_predictions(spring_m_hot, condition = "sdp95", type = "response") +
-  labs(x = "sd p95 (m)", y = "P(hotspot)")
+fig_spring <- wrap_plots(Map(\(v, k) pnl("spring", k, v), grd$v, grd$k), ncol = 2) + plot_annotation(title = "Spring")
+fig_autumn <- wrap_plots(Map(\(v, k) pnl("autumn", k, v), grd$v, grd$k), ncol = 2) + plot_annotation(title = "Autumn")
 
-(g1 | g2) / (h1 | h2)
+fig_spring
+fig_autumn
 
+#################################################################
+# Model stats
+
+ms <- function(f) do.call(rbind, lapply(names(mods), \(s) do.call(rbind, lapply(names(mods[[s]]), \(k) f(s, k, summary(mods[[s]][[k]]))))))
+
+fit <- ms(\(s, k, m) data.frame(season = s, model = k, n = m$n, dev_expl = round(100 * m$dev.expl, 1), r2_adj = round(m$r.sq, 3)))
+
+# column 3 of s.table is F for the Gamma model and Chi.sq for the binomials
+trm <- ms(\(s, k, m) data.frame(season = s, model = k, term = rownames(m$s.table), edf = round(m$s.table[, 1], 2), stat = round(m$s.table[, 3], 1), p = signif(m$s.table[, 4], 3), row.names = NULL))
+
+fit
+trm
+
+out_dir <- "C:/Users/willd/Desktop/Everything/WLFW Project/LiDAR-stopover/"
+write.csv(fit, paste0(out_dir, "model_fit_stats.csv"), row.names = F)
+write.csv(trm, paste0(out_dir, "model_term_stats.csv"), row.names = F)
