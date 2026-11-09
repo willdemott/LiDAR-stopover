@@ -1,0 +1,143 @@
+code,col,name
+101,#6e26ec,Jack pine
+102,#c765ec,Red pine
+103,#efdbcc,Eastern white pine
+104,#a8a9f2,Eastern white pine/eastern hemlock
+105,#d0ce83,Eastern hemlock
+121,#47d0b6,Balsam fir
+122,#9d86a6,White spruce
+123,#a5f77a,Red spruce
+124,#dcf4d9,Red spruce/balsam fir
+125,#64e1f7,Black spruce
+126,#afa9b0,Tamarack
+127,#f2c531,Northern white cedar
+141,#84d7eb,Longleaf pine
+142,#ef4677,Slash pine
+161,#97f2ad,Loblolly pine
+162,#d45549,Shortleaf pine
+163,#63f3ac,Virginia pine
+164,#f58de4,Sand pine
+165,#e9c991,Table Mountain pine
+166,#ddbef2,Pond pine
+167,#bba847,Pitch pine
+171,#95eacd,Eastern redcedar
+182,#a6827b,Rocky Mountain juniper
+184,#bca28a,Juniper woodland
+185,#cff3f4,Pinyon/juniper woodland
+201,#c1ded5,Douglas-fir
+202,#948ee9,Port Orford cedar
+221,#d0ef5b,Ponderosa pine
+222,#e29af0,Incense cedar
+224,#c34bc3,Sugar pine
+225,#e6acb8,Jeffrey pine
+226,#ea3b34,Coulter pine
+241,#724353,Western white pine
+261,#f2c7a0,White fir
+262,#6ab27f,Red fir
+263,#f1f3d3,Noble fir
+264,#ea5aba,Pacific silver fir
+265,#edc7e1,Engelmann spruce
+266,#4965e2,Engelmann spruce/subalpine fir
+267,#a0f4c4,Grand fir
+268,#5697de,Subalpine fir
+269,#5defc4,Blue spruce
+270,#e8f384,Mountain hemlock
+271,#cc63bd,Alaska yellow cedar
+281,#e16f3d,Lodgepole pine
+301,#f5da68,Western hemlock
+304,#a63bcf,Western redcedar
+305,#51d0dd,Sitka spruce
+321,#6bc5b6,Western larch
+341,#f2f4a5,Redwood
+361,#576abe,Knobcone pine
+362,#b56f7c,Southwestern white pine
+365,#dca5ca,Foxtail pine/bristlecone pine
+366,#67eff4,Limber pine
+367,#ca5483,Whitebark pine
+368,#a8bf86,Miscellaneous western softwoods
+369,#aff6e9,Western juniper
+371,#a53394,California mixed conifer
+381,#e9e2eb,Scotch pine
+383,#d0cfad,Other exotic softwoods
+384,#eee1b3,Norway spruce
+385,#e4db79,Introduced larch
+401,#ec42f6,Eastern white pine/northern red oak/white ash
+402,#7e9f81,Eastern redcedar/hardwood
+403,#4a7196,Longleaf pine/oak
+404,#5cd76e,Shortleaf pine/oak
+405,#37999a,Virginia pine/southern red oak
+406,#ed54dd,Loblolly pine/hardwood
+407,#6792f0,Slash pine/hardwood
+409,#82eb3e,Other pine/hardwood
+501,#b8db98,Post oak/blackjack oak
+502,#bccc4b,Chestnut oak
+503,#f22ab1,White oak/red oak/hickory
+504,#f6e095,White oak
+505,#77989d,Northern red oak
+506,#718640,Yellow-poplar/white oak/northern red oak
+507,#9d4f8d,Sassafras/persimmon
+508,#c376e4,Sweetgum/yellow-poplar
+509,#7cb133,Bur oak
+510,#5fa7cc,Scarlet oak
+511,#9ae6e8,Yellow-poplar
+512,#def3b1,Black walnut
+513,#b88bf2,Black locust
+514,#a5f031,Southern scrub oak
+515,#eeafa3,Chestnut oak/black oak/scarlet oak
+516,#9bd763,Cherry/white ash/yellow-poplar
+517,#b838ee,Elm/ash/black locust
+519,#e88fbb,Red maple/oak
+520,#cce5b9,Mixed upland hardwoods
+601,#ed8a9c,Swamp chestnut oak/cherrybark oak
+602,#c8ed2d,Sweetgum/Nuttall oak/willow oak
+605,#f0bd53,Overcup oak/water hickory
+606,#60dad1,Atlantic white cedar
+607,#c790c1,Baldcypress/water tupelo
+608,#54c7ef,Sweetbay/swamp tupelo/red maple
+609,#8e6a31,Baldcypress/pondcypress
+701,#cecceb,Black ash/American elm/red maple
+702,#b1bef2,River birch/sycamore
+703,#f077ef,Cottonwood
+704,#969aca,Willow
+705,#c4ec84,Sycamore/pecan/American elm
+706,#efadec,Sugarberry/hackberry/elm/green ash
+707,#da23cf,Silver maple/American elm
+708,#e4c3c0,Red maple/lowland
+709,#bf90e1,Cottonwood/willow
+722,#52f3eb,Oregon ash
+801,#a2c9eb,Sugar maple/beech/yellow birch
+802,#3ff451,Black cherry
+805,#6ab7f2,Hard maple/basswood
+809,#b3714c,Red maple/upland
+901,#d28f25,Aspen
+902,#f59550,Paper birch
+903,#dd82c7,Gray birch
+904,#c5f2a0,Balsam poplar
+905,#e3f2e7,Pin cherry
+911,#b2c2b1,Red alder
+912,#4ff389,Bigleaf maple
+921,#8772e8,Gray pine
+922,#bb24a1,California black oak
+923,#c7f7cd,Oregon white oak
+924,#8fc3c6,Blue oak
+931,#f13896,Coast live oak
+933,#efe92f,Canyon live oak
+934,#6c48ae,Interior live oak
+935,#b3e8cd,California white oak (valley oak)
+941,#e8a882,Tanoak
+942,#b3e0f0,California laurel
+943,#6a48de,Giant chinkapin
+961,#c3ab6e,Pacific madrone
+962,#f5f169,Other hardwoods
+971,#f3c66f,Deciduous oak woodland
+972,#4ecb89,Evergreen oak woodland
+973,#60b0c2,Mesquite woodland
+974,#76e45f,Cercocarpus (mountain brush) woodland
+975,#b3c5ce,Intermountain maple woodland
+976,#ee73af,Miscellaneous woodland hardwoods
+982,#9473b4,Mangrove
+983,#80d9a8,Palms
+991,#e6a25e,Paulownia
+992,#f8f3b7,Melaleuca
+995,#e67774,Other exotic hardwoods
+999,#d5cc36,Nonstocked

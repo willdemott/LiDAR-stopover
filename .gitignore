@@ -1,10 +1,6 @@
-.Rproj.user
-.Rhistory
-.RData
-.Ruserdata
-Northeast_epsg6350_p95_10m_rounded.tif
-Northeast_epsg6350_p95_sd_250m_10m_rounded.tif
-autumn_pred_plot_v2.jpeg
-forest.tif
-ne_map_lidar_hotspots_v1.html
-spring_pred_plot_v1.jpeg
+/*
+!/*.R
+!/*.js
+!/*.Rproj
+!/.gitignore
+!/treemap_fortypcd.csv
