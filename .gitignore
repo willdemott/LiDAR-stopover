@@ -4,3 +4,5 @@
 !/*.Rproj
 !/.gitignore
 !/treemap_fortypcd.csv
+Stopover_Lidar_Modeling.R
+Stopover_Lidar_Covariates.R
