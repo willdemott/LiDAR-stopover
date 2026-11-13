@@ -1,6 +1,7 @@
 # Stopover intensity vs LiDAR-derived forest structure: LEAF-OFF MASK (run order 2 of 5)
 # Makes the final mask used in data prep: woody 300 m cells (woody_cells_300m.tif) and the kept 10 m pixels behind every LiDAR covariate (veg_10m.tif)
-# The green-up figures (flight dates, leaf-out lag) justify the leaf-on window and run before the slow KEPT PIXELS pass, so leaf_lag can be settled first (a changed leaf_lag needs veg_10m.tif deleted)
+# The scrub check (does the woody filter drop LiDAR scrub?) and the green-up figures (flight dates, leaf-out lag; they justify the leaf-on window) run before the slow KEPT PIXELS pass,
+# so woody_min and leaf_lag can be settled first (a changed woody_min needs woody_cells_300m.tif and veg_10m.tif deleted; a changed leaf_lag needs veg_10m.tif deleted)
 # Needs: lidar_300m.tif and radar_300m.tif (stopover_lidar_gee_prep.R), the GEE woody tiles (NE_gee/), and the USA-NPN first-leaf layer (si-x__30yr_avg_4k_leaf.tif)
 
 ###################################################################
@@ -24,7 +25,7 @@
                  "C:/Users/willd/Desktop/Everything/WLFW Project/LiDAR-stopover/Burch_LiDAR/Burch/mosaic_epsg6350_")
   
   # Parameters
-  woody_min <- 75    # % of a 300 m cell's 10 m pixels classed woody (WorldCover tree cover or shrubland)
+  woody_min <- 90    # % of a 300 m cell's 10 m pixels classed woody (WorldCover tree cover or shrubland)
   h_scrub   <- 1     # p95 (m) from which a pixel counts as vegetation (scrub)
   h_forest  <- 5     # p95 (m) from which a pixel counts as forest
   leaf_lag  <- 14    # days after the local first-leaf day from which a flight counts as leaf-on
@@ -65,7 +66,7 @@
 {
   f_cell <- paste0(out_dir, "woody_cells_300m.tif")
   if (!file.exists(f_cell)) {
-    # % woody of each 300 m cell (mean of the 0/100 pixels; 75% = at least 675 of the 900 pixels), kept inside radar coverage (radar_300m.tif)
+    # % woody of each 300 m cell (mean of the 0/100 pixels; 90% = at least 810 of the 900 pixels), kept inside radar coverage (radar_300m.tif)
     w300 <- aggregate(woody10, 30, fun = "mean", na.rm = T)
     ifel(w300 >= woody_min & rast(paste0(out_dir, "radar_300m.tif")) == 1, 1, NA, filename = f_cell, datatype = "INT1U")
   }
@@ -74,13 +75,38 @@
 
 
 ##################################################################
-# GREEN-UP SAMPLE (used by the two figures below): regular sample of 10 m pixels, as a small raster
-# Kept where the leaf-on test of KEPT PIXELS applies: woody pixel, inside a woody 300 m cell, p95 >= h_scrub
+# SAMPLE (used by the scrub check and the two green-up figures below): regular sample of 10 m pixels, as a small raster
+# radar = 1 inside radar coverage (radar_300m.tif); cell = 1 inside a woody 300 m cell
 {
-  s <- c(p95, woody10, va(f_cell), fl, lr("MinTime"), lr("MaxTime"), lr("V2"), lr("V3"), lr("V4"), lr("V5"), lr("V6")) %>%
-    setNames(c("p95", "woody", "cell", "fl", "MinTime", "MaxTime", "V2", "V3", "V4", "V5", "V6")) %>%
+  s0 <- c(p95, woody10, va(f_cell), va(paste0(out_dir, "radar_300m.tif")), fl, lr("MinTime"), lr("MaxTime"), lr("V2"), lr("V3"), lr("V4"), lr("V5"), lr("V6")) %>%
+    setNames(c("p95", "woody", "cell", "radar", "fl", "MinTime", "MaxTime", "V2", "V3", "V4", "V5", "V6")) %>%
     spatSample(1e6, method = "regular", as.raster = T)
-  s <- mask(s, s[["woody"]] == 100 & s[["cell"]] == 1 & s[["p95"]] >= h_scrub, maskvalues = c(0, NA))
+}
+
+
+
+##################################################################
+# SCRUB CHECK: does the woody filter drop LiDAR scrub? Sampled pixels inside radar coverage with p95 >= h_scrub, by LiDAR class (scrub: h_scrub <= p95 < h_forest; forest: p95 >= h_forest)
+# woody_pixel_pct = % that are WorldCover tree cover or shrubland; woody_cell_pct = % inside a 300 m cell with at least woody_min % woody pixels; both_pct = % passing both woody tests (before the leaf-on test)
+# Scrub much lower than forest in both_pct = the woody filter removes scrub
+{
+  as.data.frame(s0[[c("p95", "woody", "cell", "radar")]], na.rm = F) %>%
+    filter(radar == 1, p95 >= h_scrub) %>%
+    mutate(class = ifelse(p95 >= h_forest, "forest", "scrub")) %>%
+    group_by(class) %>%
+    summarise(pixels = n(),
+              woody_pixel_pct = round(100 * mean(woody %in% 100), 1),
+              woody_cell_pct = round(100 * mean(cell %in% 1), 1),
+              both_pct = round(100 * mean(woody %in% 100 & cell %in% 1), 1)) %>%
+    print()
+}
+
+
+
+##################################################################
+# GREEN-UP SAMPLE (used by the two figures below): the sampled pixels where the leaf-on test of KEPT PIXELS applies (woody pixel, inside a woody 300 m cell, p95 >= h_scrub)
+{
+  s <- mask(s0, s0[["woody"]] == 100 & s0[["cell"]] == 1 & s0[["p95"]] >= h_scrub, maskvalues = c(0, NA))
 }
 
 
