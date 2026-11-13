@@ -1,6 +1,7 @@
 # Stopover intensity vs LiDAR-derived forest structure: FIGURES of the model cells (run order 4 of 5)
 # Reads the one stacked raster made by stopover_lidar_covariates.R (stack_300m.tif: the 300 m covariates and the spring and autumn responses)
-# vir = mean VIR of the radar years within the cell's LiDAR year +-1; hot = 1 if the cell's VIR reached the top 10% of its nearest station's full range in all 3 of those years
+# vir = mean VIR of the radar years within the cell's LiDAR year +-1; hot = 1 if the cell's VIR reached the top 10% of its station's full range in all 3 of those years
+# A cell's station = the radar whose VIR raster covers it; habitat class (ftype) = FIA forest type group, or Shrub when most of the cell's kept LiDAR pixels are scrub (p95 1-5 m)
 
 ###################################################################
 # Load Packages
@@ -19,7 +20,7 @@
 ##################################################################
 # SETUP: folder, seasons, model covariates, and the stacked raster
 {
-  # Folder with the stacked raster and the forest type table (treemap_fortypcd.csv)
+  # Folder with the stacked raster
   out_dir <- "C:/Users/willd/Desktop/Everything/WLFW Project/LiDAR-stopover/"
   
   # Seasons, and height layer breaks (m) of the voxel layers (as in the covariate script)
@@ -27,9 +28,9 @@
   brk <- c(1, 2, 3, 4, 5, 6, 18, 30, 42, Inf)
   
   # Covariates of the model cells (year and yymm = LiDAR flight year and month, YY and YYMM; not model covariates)
-  vars <- c("p95", "sdp95", "rumple", "fhd", "sdfhd", "nrd", "pd", "chili", "waterdist", "raddist", "elev", "beamagl", "fortype", "ftype", "station", "year", "yymm")
+  vars <- c("p95", "sdp95", "rumple", "fhd", "sdfhd", "nrd", "pd", "chili", "waterdist", "edgedist", "raddist", "elev", "beamagl", "ftype", "station", "year", "yymm")
   
-  # Stacked raster (300 m covariates; responses vir_<season>, hot_<season>, nyr_<season>; forest type and station as labeled classes), and voxel layer names (v1_2 ... v42_Inf)
+  # Stacked raster (300 m covariates; responses vir_<season>, hot_<season>, nyr_<season>; habitat class and station as labeled classes), and voxel layer names (v1_2 ... v42_Inf)
   stk <- rast(paste0(out_dir, "stack_300m.tif"))
   vl <- grep("^v[0-9]", names(stk), value = T)
 }
@@ -37,7 +38,7 @@
 
 
 ##################################################################
-# SAMPLE POINTS PER RADAR: model rows (300 m cells) per station and season; a cell inside several stations' ranges counts once for each station
+# SAMPLE POINTS PER RADAR: model rows (300 m cells) per station and season; each cell counts for its own station (the radar its VIR comes from)
 {
   g <- lapply(seasons, function(s) {
     as.data.frame(stk[[c(vars, paste0(c("vir_", "hot_", "nyr_"), s))]], na.rm = T) %>% mutate(season = s)   # model cells of season s (every covariate and response present)
@@ -54,19 +55,12 @@
 
 
 ##################################################################
-# FOREST TYPE GROUPS: 300 m cells with forest LiDAR per FIA forest type group (bar chart)
+# HABITAT CLASSES: 300 m cells with forest LiDAR per habitat class (FIA forest type group, Other, or Shrub; bar chart)
 {
-  # FIA forest type groups: each group code is the first forest type code of its range
-  grp <- c("100" = "White/red/jack pine", "120" = "Spruce/fir", "140" = "Longleaf/slash pine", "150" = "Tropical softwoods", "160" = "Loblolly/shortleaf pine", "170" = "Other eastern softwoods", "180" = "Pinyon/juniper", "200" = "Douglas-fir", "220" = "Ponderosa pine", "240" = "Western white pine", "260" = "Fir/spruce/mountain hemlock", "280" = "Lodgepole pine", "300" = "Hemlock/Sitka spruce", "320" = "Western larch", "340" = "Redwood", "360" = "Other western softwoods", "370" = "California mixed conifer", "380" = "Exotic softwoods", "390" = "Other softwoods", "400" = "Oak/pine", "500" = "Oak/hickory", "600" = "Oak/gum/cypress", "700" = "Elm/ash/cottonwood", "800" = "Maple/beech/birch", "900" = "Aspen/birch", "910" = "Alder/maple", "920" = "Western oak", "940" = "Tanoak/laurel", "950" = "Other western hardwoods (retired)", "960" = "Other hardwoods", "970" = "Woodland hardwoods", "980" = "Tropical hardwoods", "990" = "Exotic hardwoods", "999" = "Nonstocked")
-  
-  # Cells per forest type code -> group (the largest group code at or below the code, e.g. 515 -> 500) -> cells per group
-  g <- freq(mask(stk[["fortype"]], stk[["p95"]])) %>%
-    mutate(group = grp[findInterval(value, as.numeric(names(grp)))]) %>%
-    group_by(group) %>%
-    summarise(cells = sum(count)) %>%
-    ggplot(aes(x = cells, y = reorder(group, cells))) +
+  g <- freq(mask(stk[["ftype"]], stk[["p95"]])) %>%
+    ggplot(aes(x = count, y = reorder(value, count))) +
     geom_col() +
-    labs(x = "300 m cells", y = NULL, title = "Forest type group (TreeMap FORTYPCD) of the 300 m cells with forest LiDAR")
+    labs(x = "300 m cells", y = NULL, title = "Habitat class of the 300 m cells with forest LiDAR")
   print(g)
 }
 
@@ -82,16 +76,20 @@
   sp <- mask(sp, noNA(sp[[c(vars, "vir", "hot", "nyr")]], falseNA = T))
   fa <- mask(fa, noNA(fa[[c(vars, "vir", "hot", "nyr")]], falseNA = T))
   
-  # Forest type colors: TreeMap color of every code (treemap_fortypcd.csv) and grey for Other, named by class label
-  ft <- read.csv(paste0(out_dir, "treemap_fortypcd.csv"))
-  fcol <- c(setNames(ft$col, paste(ft$code, ft$name)), Other = "#bdbdbd")
+  # Habitat class colors: one color per class, in class order (as in the forest type curves of stopover_lidar_model.R), grey for Other; named by class label
+  lv <- levels(stk[["ftype"]])[[1]]$ftype
+  fcol <- setNames(hcl.colors(length(lv), "Dark 3"), lv)
+  fcol["Other"] <- "#bdbdbd"
+  
+  # Habitat classes of the autumn model cells as polygons, one per class (used by both maps below)
+  ft_poly <- as.polygons(fa[["ftype"]])
 }
 
 
 
 ##################################################################
-# MAPS of the model cells: responses (spring and autumn) and covariates (deciles as color breaks), forest type, LiDAR flight month, and the voxel layers
-# Covariate, forest type, flight month, and voxel layers come from the autumn model cells (fa), which have the larger radar coverage
+# MAPS of the model cells: responses (spring and autumn) and covariates (deciles as color breaks), habitat class, LiDAR flight month, and the voxel layers
+# Covariate, habitat class, flight month, and voxel layers come from the autumn model cells (fa), which have the larger radar coverage
 {
   # Mapview basemap options, getting rid of watermarks
   options("mapviewBasemaps" = c("Esri.WorldGrayCanvas", "CartoDB.DarkMatter", "OpenStreetMap", "Esri.WorldImagery", "OpenTopoMap"))
@@ -100,9 +98,9 @@
   lyr <- c(p95 = "Canopy height p95 (m)", sdp95 = "Canopy height SD (m)", rumple = "Rumple index (canopy surface per flat area)",
            fhd = "Vertical diversity (FHD)", sdfhd = "FHD SD (horizontal heterogeneity)",
            nrd = "Shrub layer (share of returns at 1-2 m)", chili = "Heat load (CHILI)", waterdist = "Distance to water (m)",
-           pd = "Point density (returns per m2)", elev = "Elevation (m)")
+           edgedist = "Distance to forest edge (m)", pd = "Point density (returns per m2)", elev = "Elevation (m)")
   
-  # Main map: spring and autumn VIR and hotspot layers (shown); the covariate, forest type, and flight month layers added below are hidden (turn on in the layer menu)
+  # Main map: spring and autumn VIR and hotspot layers (shown); the covariate, habitat class, and flight month layers added below are hidden (turn on in the layer menu)
   map <- mapview(sp[["vir"]], layer.name = "Spring VIR", col.regions = turbo,
                  at = unique(quantile(values(sp[["vir"]]), seq(0, 1, 0.1), na.rm = T)),
                  na.color = "transparent", maxpixels = 1.4e6) +
@@ -121,10 +119,9 @@
                          na.color = "transparent", maxpixels = 1.4e6, hide = T)
   }
   
-  # Forest type classes of the autumn model cells as polygons (one per class, so the legend shows names); rows sorted so the colors (row by row) and the legend (alphabetical) agree
-  ft_poly <- as.polygons(fa[["ftype"]])
+  # Habitat classes of the autumn model cells (polygons, one per class, so the legend shows names); rows sorted so the colors (row by row) and the legend (alphabetical) agree
   map <- map + mapview(ft_poly[order(ft_poly$ftype), ], zcol = "ftype", col.regions = unname(fcol[sort(ft_poly$ftype)]),
-                       alpha.regions = 1, layer.name = "Forest type class", lwd = 0, hide = T)
+                       alpha.regions = 1, layer.name = "Habitat class", lwd = 0, hide = T)
   
   # LiDAR flight month of the autumn model cells as polygons labeled YYYY-MM (alphabetical = chronological, so colors and legend agree)
   fl_poly <- as.polygons(fa[["yymm"]])
@@ -149,11 +146,31 @@
 
 
 ##################################################################
+# HABITAT MAP of the model cells: spring and autumn VIR (shown), plus one layer per habitat class of the autumn model cells (hidden; turn each on in the layer menu)
+{
+  hmap <- mapview(sp[["vir"]], layer.name = "Spring VIR", col.regions = turbo,
+                  at = unique(quantile(values(sp[["vir"]]), seq(0, 1, 0.1), na.rm = T)),
+                  na.color = "transparent", maxpixels = 1.4e6) +
+    mapview(fa[["vir"]], layer.name = "Autumn VIR", col.regions = turbo,
+            at = unique(quantile(values(fa[["vir"]]), seq(0, 1, 0.1), na.rm = T)),
+            na.color = "transparent", maxpixels = 1.4e6)
+  
+  # One layer per habitat class, in its class color (layer names without "/", which mapview cannot use in a layer name)
+  for (k in sort(ft_poly$ftype)) {
+    hmap <- hmap + mapview(ft_poly[ft_poly$ftype == k, ], col.regions = fcol[[k]], alpha.regions = 1, lwd = 0,
+                           layer.name = gsub("/", "-", k), hide = T)
+  }
+  print(hmap)
+}
+
+
+
+##################################################################
 # VOXEL PROFILES: data for the ridgelines below
 # Each class's ridge is a step line: over each height layer, its height = the class's mean % of returns in that layer / the layer's width (% of returns per m of height)
 # x = height above ground; each layer drawn over its true range (1 m layers to 6 m, then 12 m layers; the open 42+ m layer drawn as 42-54 m); the 0-1 m layer is not kept, so profiles start at 1 m
 {
-  # Forest type class, canopy height, and voxel layers of the autumn model cells (the larger radar coverage)
+  # Habitat class, canopy height, and voxel layers of the autumn model cells (the larger radar coverage)
   vox_d <- as.data.frame(fa[[c("ftype", "p95", vl)]], na.rm = T)
   
   # Ridge points of a table with a 'class' column: mean of each voxel layer per class, then two points per layer (its bottom and top, both at % of returns per m)
@@ -170,18 +187,18 @@
 
 
 ##################################################################
-# VOXEL RIDGELINES BY FOREST TYPE: mean voxel profile of each forest type class (lowest FIA code at the top, Other at the bottom)
+# VOXEL RIDGELINES BY HABITAT CLASS: mean voxel profile of each habitat class (lowest FIA group code at the top; Other and Shrub at the bottom)
 {
   pr <- vox_d %>%
     mutate(class = factor(as.character(ftype), levels = rev(sort(unique(as.character(ftype)))))) %>%
     ridge_points()
   
-  # Ridgelines (tallest step = 1.5 row spacings); colors = forest type colors
+  # Ridgelines (tallest step = 1.5 row spacings); colors = habitat class colors
   g <- ggplot(pr, aes(x = x, y = class, height = value, fill = class)) +
     geom_ridgeline(scale = 1.5 / max(pr$value), alpha = 0.8) +
     scale_fill_manual(values = fcol, guide = "none") +
     scale_x_continuous(breaks = c(1, 6, 18, 30, 42, 54)) +
-    labs(x = "Height above ground (m)", y = NULL, title = "Mean voxel profile (% of all returns per m of height) by forest type")
+    labs(x = "Height above ground (m)", y = NULL, title = "Mean voxel profile (% of all returns per m of height) by habitat class")
   print(g)
 }
 
