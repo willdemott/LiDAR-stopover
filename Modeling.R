@@ -1,6 +1,7 @@
 # Stopover intensity vs LiDAR-derived forest structure: MODELING (run order 5 of 5)
 # Fits GAMs to the spring and autumn model cells of stack_300m.tif (from stopover_lidar_covariates.R), then makes the effect, interaction, and forest type figures and the model stats
-# vir = mean VIR (Gamma, log link); hot = 1 if hot in all 3 years of the LiDAR year +-1 (binomial); both with forest type, one smooth per covariate, ti(p95, fhd), and a station random effect
+# vir = mean VIR (Gamma, log link); hot = 1 if hot in all 3 years of the LiDAR year +-1 (binomial); both with habitat class (ftype: FIA forest type group or Shrub), one smooth per covariate, ti(p95, fhd), and a station random effect
+# Yearly VIR above 7000 was already removed in stopover_lidar_covariates.R (vir_cap), before the hot cutoffs, the hot test, and the mean VIR
 # Covariates are listed once (covs, in SETUP): the formulas, figures, and stats follow that list
 # Pipes (%>%) read left to right: take a table, do one step, pass the result to the next step
 
@@ -30,10 +31,11 @@
     "nrd",       "Shrub layer: share of\nreturns at 1-2 m (%)",       TRUE,
     "chili",     "Heat load, CHILI\n(cool to warm)",                  FALSE,
     "waterdist", "Distance to\nwater (m)",                            FALSE,
+    "edgedist",  "Distance to\nforest edge (m)",                      FALSE,
     "beamagl",   "Radar beam height\nabove ground (m)",               FALSE,
     "elev",      "Elevation (m)",                                     FALSE)
   
-  # Formulas: forest type (fixed effect) + one smooth per covariate (k = 20) + canopy height x vertical diversity interaction + station random effect
+  # Formulas: habitat class (fixed effect) + one smooth per covariate (k = 20) + canopy height x vertical diversity interaction + station random effect
   rhs <- paste("ftype +", paste0("s(", covs$name, ", k = 20)", collapse = " + "), "+ ti(p95, fhd) + s(station, bs = 're')")
   fml <- list(vir = as.formula(paste("vir ~", rhs)), hot = as.formula(paste("hot ~", rhs)))
   fam <- list(vir = Gamma(link = "log"), hot = binomial())
@@ -43,12 +45,9 @@
   runs <- expand.grid(response = c("vir", "hot"), season = c("spring", "autumn"), stringsAsFactors = F) %>%
     mutate(model = paste(season, response))
   
-  # Largest VIR used in the VIR models
-  vir_cap <- 7000
-  
-  # Forest types (FIA codes): base type of the figures, and the types with their own curves in the forest type curves
-  base_code <- "801"
-  type_codes <- c("801", "503", "515")
+  # Habitat classes (first word of the class label: FIA forest type group code, or Shrub): base class of the figures, and the classes with their own curves in the forest type curves
+  base_code <- "800"
+  type_codes <- c("800", "500", "Shrub")
   
   # Response labels, and season colors (colorblind-friendly)
   ylab <- c(vir = "Predicted VIR", hot = "P(hot all 3 years)")
@@ -67,25 +66,25 @@
   stk <- terra::rast(paste0(out_dir, "stack_300m.tif"))
   
   # Model dataframes, one per season = cells with every model covariate, point density, forest type, station, and that season's responses (suffix _<season> dropped: vir, hot, nyr)
-  # ft3 = listed type or Other, ordered with Other first (s(v, by = ft3) then adds one difference curve per listed type to the shared curve)
+  # ft3 = listed class or Other (first word of the label: e.g. "800", "Shrub"), ordered with Other first (s(v, by = ft3) then adds one difference curve per listed class to the shared curve)
   dat <- lapply(c(spring = "spring", autumn = "autumn"), function(s) {
     terra::as.data.frame(stk[[c(covs$name, "pd", "ftype", "station", paste0(c("vir_", "hot_", "nyr_"), s))]], xy = T, na.rm = T) %>%
       rename_with(function(n) sub(paste0("_", s, "$"), "", n)) %>%
       mutate(fhd = adj_pd(fhd, pd),
              sdfhd = adj_pd(sdfhd, pd),
-             ft3 = ordered(if_else(substr(ftype, 1, 3) %in% type_codes, substr(ftype, 1, 3), "Other"), levels = c("Other", type_codes)))
+             ft3 = ordered(if_else(sub(" .*", "", ftype) %in% type_codes, sub(" .*", "", ftype), "Other"), levels = c("Other", type_codes)))
   })
   
-  # Full label of the base forest type, e.g. "801 Sugar maple/beech/yellow birch"
+  # Full label of the base class, e.g. "800 Maple/beech/birch"
   base_type <- grep(paste0("^", base_code, " "), levels(dat$spring$ftype), value = T)
   
-  # Model data of season s and response k: VIR models use cells with 0 < VIR <= vir_cap (Gamma needs positive values); hot models use cells with all 3 years tested
-  model_data <- function(s, k) if (k == "vir") filter(dat[[s]], vir > 0, vir <= vir_cap) else filter(dat[[s]], nyr == 3)
+  # Model data of season s and response k: VIR models use cells with VIR > 0 (Gamma needs positive values; VIR is already at most 7000); hot models use cells with all 3 years tested
+  model_data <- function(s, k) if (k == "vir") filter(dat[[s]], vir > 0) else filter(dat[[s]], nyr == 3)
   
   # Check: cells per season and model, hot cells, and correlations of the adjusted FHD and SD of FHD with point density (near 0)
   bind_rows(dat, .id = "season") %>%
     group_by(season) %>%
-    summarise(cells = n(), vir_model = sum(vir > 0 & vir <= vir_cap), hot_model = sum(nyr == 3), hot_1 = sum(hot[nyr == 3]),
+    summarise(cells = n(), vir_model = sum(vir > 0), hot_model = sum(nyr == 3), hot_1 = sum(hot[nyr == 3]),
               cor_fhd_pd = cor(fhd, pd), cor_sdfhd_pd = cor(sdfhd, pd)) %>%
     print()
   plot(dat$spring$pd, dat$spring$fhd, pch = ".", xlab = "Point density (returns per m2)", ylab = "FHD (point density-adjusted)")
@@ -273,12 +272,9 @@
   }) %>%
     setNames(runs$model)
   
-  # Labels of the listed types, and their TreeMap colors (as in the maps)
+  # Labels of the listed classes, and their colors (one color per habitat class, in class order, as in the maps of stopover_lidar_responses.R)
   ft_lab <- sapply(type_codes, function(t) grep(paste0("^", t, " "), levels(dat$spring$ftype), value = T))
-  ft_col <- read.csv(paste0(out_dir, "treemap_fortypcd.csv")) %>%
-    filter(code %in% type_codes) %>%
-    mutate(label = paste(code, name)) %>%
-    pull(col, name = label)
+  ft_col <- setNames(hcl.colors(nlevels(dat$spring$ftype), "Dark 3"), levels(dat$spring$ftype))[ft_lab]
   
   # One curve per model, structure covariate, and listed type
   cur_grid <- expand.grid(model = names(ftm), covariate = covs$name[covs$structure], type = type_codes, stringsAsFactors = F) %>% left_join(runs, by = "model")
