@@ -1,8 +1,9 @@
 # Stopover intensity vs LiDAR-derived forest structure: DATA PREP, 300 m COVARIATES and RESPONSES (run order 3 of 5)
 # Each covariate (and each season's responses) is its own 300 m raster on one shared grid (EPSG:6350, 300 m cells on the LiDAR 10 m grid origin), cached in ./cov_dir as <name>.tif
-# All cached layers are written as ONE stacked raster, stack_300m.tif in out_dir (with its .aux.xml, which holds the forest type and station labels): the only input of stopover_lidar_responses.R and stopover_lidar_model.R
-# Needs: lidar_300m.tif, stations.csv (stopover_lidar_gee_prep.R), veg_10m.tif (stopover_lidar_mask.R), and the GEE exports (NE_gee/)
-# LiDAR covariates only contain non-leaf forest pixels of each 300 m cell (woody, flown leaf-off, p95 >= h_forest)
+# All cached layers are written as ONE stacked raster, stack_300m.tif in out_dir (with its .aux.xml, which holds the habitat class and station labels): the only input of stopover_lidar_responses.R and stopover_lidar_model.R
+# Needs: lidar_300m.tif, stations.csv (stopover_lidar_gee_prep.R), veg_10m.tif (stopover_lidar_mask.R), and the GEE exports (NE_gee/; every layer but woody already as 300 m cell values)
+# LiDAR covariates only contain non-leaf forest pixels of each 300 m cell (woody, flown leaf-off, p95 >= h_forest); the habitat class (ftype) also uses the scrub pixels (p95 1-5 m)
+# Each cell's station = the radar whose VIR raster covers it (the nearer one where two overlap): its VIR, distance, beam height, and hot cutoff all come from that radar
 
 ###################################################################
 # Load Packages
@@ -34,10 +35,13 @@
   lidar_src <- c("C:/Users/willd/Desktop/Everything/WLFW Project/LiDAR-stopover/JT_LiDAR/Northeast_epsg6350_",
                  "C:/Users/willd/Desktop/Everything/WLFW Project/LiDAR-stopover/Burch_LiDAR/Burch/mosaic_epsg6350_")
   
-  # Parameters: height layer breaks (m), shared by both datasets' V bins; seasons and radar years (layer 1 = 2013) of the responses
+  # Parameters: height layer breaks (m), shared by both datasets' V bins; seasons and radar years (layer 1 = 2013) of the responses;
+  # largest yearly VIR kept (higher values set to NA before the hot cutoffs, the hot test, and the mean VIR); % of a cell's kept pixels that must be scrub for the Shrub habitat class (more than)
   brk <- c(1, 2, 3, 4, 5, 6, 18, 30, 42, Inf)
   seasons <- c("spring", "autumn")
   yrs <- 2013:2024
+  vir_cap <- 7000
+  shrub_min <- 50
   
   # Processing: small blocks, large GDAL cache (the JT files are stored in 512 x 512 tiles)
   terraOptions(memmax = 2)
@@ -53,6 +57,12 @@
   
   # Shared 300 m grid: maximum p95 of each 300 m cell (lidar_300m.tif, made by stopover_lidar_gee_prep.R)
   grid300 <- rast(paste0(out_dir, "lidar_300m.tif"))
+  
+  # GEE 300 m layer, e.g. g300("elev"): tiles of NE_gee/gee_<name>_300m*.tif stitched on the shared 300 m grid (the GEE cells are the grid's cells, so nothing is aggregated or resampled)
+  g300 <- function(name) {
+    vrt(list.files(gee_dir, pattern = paste0("^gee_", name, "_300m.*\\.tif$"), full.names = T),
+        options = c("-te", xmin(grid300), ymin(grid300), xmax(grid300), ymax(grid300), "-tr", res(grid300)))
+  }
   
   # Radar stations (stations.csv, made by stopover_lidar_gee_prep.R; id = value in station.tif), and station points in the LiDAR CRS
   sta <- read.csv(paste0(out_dir, "stations.csv"))
@@ -228,51 +238,64 @@
 
 
 ##################################################################
-# HEAT LOAD (chili.tif): mean CHILI (0 = cool to 255 = warm) of each 300 m cell, from the 90 m GEE export
+# HEAT LOAD (chili.tif): mean CHILI (0 = cool to 255 = warm) of each 300 m cell's 10 m pixels (GEE, US 10 m CHILI)
 {
   if (!file.exists(cf("chili"))) {
-    vrt(list.files(gee_dir, pattern = "^gee_chili_90m.*\\.tif$", full.names = T)) %>%   # GEE tiles stitched
-      project(grid300, method = "average") %>% # mean over each 300 m cell
-      setNames("chili") %>% writeRaster(cf("chili"))
+    g300("chili") %>% setNames("chili") %>% writeRaster(cf("chili"))
   }
 }
 
 
 
 ##################################################################
-# DISTANCE TO WATER (waterdist.tif): mean distance (m) to the nearest water of each 300 m cell, from the 30 m GEE export
+# DISTANCE TO WATER (waterdist.tif): mean distance (m) of each 300 m cell's 10 m pixels to the nearest water (GEE: NHD and WorldCover water)
 {
   if (!file.exists(cf("waterdist"))) {
-    vrt(list.files(gee_dir, pattern = "^gee_waterdist_30m.*\\.tif$", full.names = T)) %>%
-      project(grid300, method = "average") %>%
-      setNames("waterdist") %>% writeRaster(cf("waterdist"))
+    g300("waterdist") %>% setNames("waterdist") %>% writeRaster(cf("waterdist"))
   }
 }
 
 
 
 ##################################################################
-# ELEVATION (elev.tif): mean elevation (m) of each 300 m cell, from the 30 m GEE export (3DEP)
+# DISTANCE TO FOREST EDGE (edgedist.tif): mean distance (m) of each 300 m cell's 10 m pixels to the nearest opening
+# (GEE: non-woody WorldCover land other than water, in patches of at least 0.5 ha; woody = tree cover or shrubland)
+{
+  if (!file.exists(cf("edgedist"))) {
+    g300("edgedist") %>% setNames("edgedist") %>% writeRaster(cf("edgedist"))
+  }
+}
+
+
+
+##################################################################
+# ELEVATION (elev.tif): mean elevation (m) of each 300 m cell's 10 m pixels (GEE, 3DEP 10 m)
 {
   if (!file.exists(cf("elev"))) {
-    vrt(list.files(gee_dir, pattern = "^gee_elev_30m.*\\.tif$", full.names = T)) %>%
-      project(grid300, method = "average") %>%
-      setNames("elev") %>% writeRaster(cf("elev"))
+    g300("elev") %>% setNames("elev") %>% writeRaster(cf("elev"))
   }
 }
 
 
 
 ##################################################################
-# FOREST TYPE (fortype.tif): most common TreeMap forest type code (FIA FORTYPCD) of each 300 m cell's TreeMap forest pixels, from the 30 m GEE export
-# Values up to 100 are not forest type codes (the lowest is 101, jack pine; e.g. 0 or -1 for non-forest) and are set to NA before the mode; cells without forest pixels stay NA
+# FOREST TYPE GROUP (fortype.tif): FIA forest type group code (e.g. 500 = oak/hickory) most common among each 300 m cell's TreeMap forest pixels (GEE, TreeMap 2020); NA = no forest pixels
 {
   if (!file.exists(cf("fortype"))) {
+    g300("fortype") %>% setNames("fortype") %>% writeRaster(cf("fortype"), datatype = "INT2S")
+  }
+}
+
+
+
+##################################################################
+# SCRUB SHARE (scrub.tif): % of each 300 m cell's kept pixels that are scrub (veg = 1: h_scrub <= p95 < h_forest); used for the Shrub habitat class
+{
+  if (!file.exists(cf("scrub"))) {
     tf <- tempfile(fileext = ".tif")
-    vrt(list.files(gee_dir, pattern = "^gee_fortype_30m.*\\.tif$", full.names = T)) %>%
-      classify(cbind(-Inf, 100, NA), filename = tf, datatype = "INT2S") %>%   # non-forest values -> NA (30 m, temporary file)
-      project(grid300, method = "mode") %>%
-      setNames("fortype") %>% writeRaster(cf("fortype"))
+    lapp(veg, function(v) ifelse(v == 1, 100, 0), filename = tf) %>%   # 100 = scrub, 0 = forest, NA = not kept (10 m, temporary file)
+      aggregate(30, fun = "mean", na.rm = T) %>%
+      setNames("scrub") %>% writeRaster(cf("scrub"))
     unlink(tf)
   }
 }
@@ -280,49 +303,56 @@
 
 
 ##################################################################
-# FOREST TYPE CLASS (ftype.tif): codes with at least 500 300 m cells of forest LiDAR keep their own class (most common first); all other codes = Other
-# Names and colors: treemap_fortypcd.csv in out_dir (code, TreeMap color, name)
+# HABITAT CLASS (ftype.tif): Shrub when more than shrub_min % of a cell's kept pixels are scrub; otherwise its FIA forest type group
+# Groups with at least 500 non-shrub 300 m cells of forest LiDAR keep their own class (most common first); all other groups = Other; NA = no TreeMap forest pixels and not Shrub
 {
   if (!file.exists(cf("ftype"))) {
-    # 300 m cells with forest LiDAR (p95) per forest type code -> codes with at least 500 cells, most common first
-    ft <- read.csv(paste0(out_dir, "treemap_fortypcd.csv")) %>%
-      inner_join(freq(mask(rast(cf("fortype")), rast(cf("p95")))), by = c("code" = "value")) %>%
+    # FIA forest type groups: each group code is the first forest type code of its range
+    grp <- c("100" = "White/red/jack pine", "120" = "Spruce/fir", "140" = "Longleaf/slash pine", "150" = "Tropical softwoods", "160" = "Loblolly/shortleaf pine", "170" = "Other eastern softwoods", "180" = "Pinyon/juniper", "200" = "Douglas-fir", "220" = "Ponderosa pine", "240" = "Western white pine", "260" = "Fir/spruce/mountain hemlock", "280" = "Lodgepole pine", "300" = "Hemlock/Sitka spruce", "320" = "Western larch", "340" = "Redwood", "360" = "Other western softwoods", "370" = "California mixed conifer", "380" = "Exotic softwoods", "390" = "Other softwoods", "400" = "Oak/pine", "500" = "Oak/hickory", "600" = "Oak/gum/cypress", "700" = "Elm/ash/cottonwood", "800" = "Maple/beech/birch", "900" = "Aspen/birch", "910" = "Alder/maple", "920" = "Western oak", "940" = "Tanoak/laurel", "950" = "Other western hardwoods (retired)", "960" = "Other hardwoods", "970" = "Woodland hardwoods", "980" = "Tropical hardwoods", "990" = "Exotic hardwoods", "999" = "Nonstocked")
+    
+    # Shrub cells (1 = Shrub, 0 = not, NA = no kept pixels), and the forest type group of every other cell
+    shrub <- rast(cf("scrub")) > shrub_min
+    fgrp <- mask(rast(cf("fortype")), shrub, maskvalues = 1)
+    
+    # 300 m cells with forest LiDAR (p95) per group, not counting Shrub cells -> groups with at least 500 cells, most common first
+    ft <- freq(mask(fgrp, rast(cf("p95")))) %>%
       filter(count >= 500) %>%
       arrange(desc(count))
     
-    # Class of each 300 m cell (class i = row i of ft; last class = Other), labeled code + name
-    ftype <- classify(rast(cf("fortype")), cbind(ft$code, 1:nrow(ft)), others = nrow(ft) + 1)
-    levels(ftype) <- data.frame(value = 1:(nrow(ft) + 1), ftype = c(paste(ft$code, ft$name), "Other"))
+    # Class of each 300 m cell: class i = row i of ft, then Other, then Shrub; labeled group code + name
+    # (mask: cells without TreeMap forest pixels stay NA; terra versions differ in whether classify's 'others' also fills NA cells)
+    ftype <- classify(fgrp, cbind(ft$value, 1:nrow(ft)), others = nrow(ft) + 1) %>% mask(fgrp)
+    ftype <- ifel(shrub == 1, nrow(ft) + 2, ftype)
+    levels(ftype) <- data.frame(value = 1:(nrow(ft) + 2), ftype = c(paste(ft$value, grp[as.character(ft$value)]), "Other", "Shrub (LiDAR p95 1-5 m)"))
     ftype %>% setNames("ftype") %>% writeRaster(cf("ftype"))
+    
+    # Check: 300 m cells with forest LiDAR per habitat class
+    print(freq(mask(ftype, rast(cf("p95")))))
   }
 }
 
 
 
 ##################################################################
-# RADAR DISTANCE (raddist.tif): distance (km) from each 300 m cell to the nearest station
+# RADAR STATION AND DISTANCE (station.tif, raddist.tif): id (stations.csv) of the station whose VIR raster covers each 300 m cell, and the distance (km) to it
+# A station covers the cells where its raster has VIR in any year of either season (bilinear, as in RESPONSES); where two stations cover a cell, the nearer one
 {
-  if (!file.exists(cf("raddist"))) {
-    (distance(rast(grid300), sta_v) / 1000) %>% setNames("raddist") %>% writeRaster(cf("raddist"))
+  if (!all(file.exists(cf(c("station", "raddist"))))) {
+    d <- lapply(sta$id, function(i) {
+      spr <- max(rast(fp(sta$icao[i], "spring")), na.rm = T) %>% project(grid300, method = "bilinear")   # spring VIR in any year
+      aut <- max(rast(fp(sta$icao[i], "autumn")), na.rm = T) %>% project(grid300, method = "bilinear")   # autumn VIR in any year
+      mask(distance(rast(grid300), sta_v[i]), max(spr, aut, na.rm = T))   # distance (m) to station i, inside its coverage only
+    }) %>%
+      rast()   # one layer per station (layer i = station id i)
+    which.min(d) %>% setNames("station") %>% writeRaster(cf("station"), overwrite = T)   # layer of the nearest covering station = its id
+    (min(d, na.rm = T) / 1000) %>% setNames("raddist") %>% writeRaster(cf("raddist"), overwrite = T)
   }
 }
 
 
 
 ##################################################################
-# NEAREST STATION (station.tif): id (stations.csv) of each 300 m cell's nearest station
-{
-  if (!file.exists(cf("station"))) {
-    lapply(1:nrow(sta), function(i) distance(rast(grid300), sta_v[i])) %>%   # distance to each station, one layer per station
-      rast() %>% which.min() %>%  # layer of the nearest station = its id
-      setNames("station") %>% writeRaster(cf("station"))
-  }
-}
-
-
-
-##################################################################
-# RADAR BEAM HEIGHT (beamagl.tif): height (m) of the nearest station's lowest beam (0.5 degrees) above the ground
+# RADAR BEAM HEIGHT (beamagl.tif): height (m) of the cell's station's lowest beam (0.5 degrees) above the ground
 # = station site elevation + beam height above the radar at that distance - cell elevation
 {
   if (!file.exists(cf("beamagl"))) {
@@ -335,13 +365,15 @@
 
 
 ##################################################################
-# HOT-YEAR CUTOFFS (saved as cutoffs.csv in cov_dir): 90th percentile of each station's VIR in each year and season, over its full range (the station's own raster: uncropped and unmasked)
+# HOT-YEAR CUTOFFS (saved as cutoffs.csv in cov_dir): 90th percentile of each station's VIR in each year and season, over its full range (the station's own raster: uncropped and unmasked), yearly VIR above vir_cap removed first
 {
   f_cut <- paste0(cov_dir, "cutoffs.csv")
   if (!file.exists(f_cut)) {
     lapply(seasons, function(s) {
       lapply(sta$id, function(i) {
-        q90 <- apply(values(rast(fp(sta$icao[i], s))), 2, quantile, 0.9, na.rm = T)   # one value per year (layer)
+        v <- values(rast(fp(sta$icao[i], s)))   # one column per year (layer)
+        v[v > vir_cap] <- NA                     # yearly VIR above vir_cap removed
+        q90 <- apply(v, 2, quantile, 0.9, na.rm = T)
         data.frame(season = s, id = i, icao = sta$icao[i], year = yrs, q90 = q90)
       }) %>% bind_rows()
     }) %>%
@@ -358,20 +390,25 @@
 
 ##################################################################
 # RESPONSES (resp_<season>.tif, layers vir_<season>, hot_<season>, nyr_<season>): vir = mean VIR of the radar years within the cell's LiDAR year +-1;
-# hot = 1 if the cell's VIR reached its nearest station's cutoff in all 3 of those years; nyr = years tested (VIR and a cutoff), so hot = 1 needs nyr = 3
+# hot = 1 if the cell's VIR reached its station's cutoff in all 3 of those years; nyr = years tested (VIR and a cutoff), so hot = 1 needs nyr = 3
+# Yearly VIR above vir_cap is removed first, so it counts neither for hot nor for the mean (a removed year lowers nyr)
 {
   # Radar years within the LiDAR year +-1 of each 300 m cell: one layer per radar year (1 = within, 0 = not)
   win <- rast(lapply(yrs, function(y) abs(y - 2000 - rast(cf("year"))) <= 1))
   
   for (s in seasons) {
     if (!file.exists(cf(paste0("resp_", s)))) {
-      # Yearly VIR on the 300 m grid (one layer per year; mean where station ranges overlap; bilinear), kept in the LiDAR window only
-      vir <- fp(sta$icao, s) %>%
-        lapply(rast) %>% sprc() %>% mosaic(fun = "mean") %>%
-        project(grid300, method = "bilinear") %>%
+      # Yearly VIR on the 300 m grid (one layer per year): each cell from its own station's raster (station.tif), values above vir_cap removed, bilinear; kept in the LiDAR window only
+      vir <- lapply(sta$id, function(i) {
+        rast(fp(sta$icao[i], s)) %>%
+          clamp(upper = vir_cap, values = F) %>%                     # yearly VIR above vir_cap -> NA
+          project(grid300, method = "bilinear") %>%
+          mask(rast(cf("station")) == i, maskvalues = c(0, NA))     # cells of station i only
+      }) %>%
+        sprc() %>% merge() %>%   # stations joined (their cells do not overlap)
         mask(win, maskvalues = c(0, NA))
       
-      # Hot-year cutoff of each cell's nearest station: one layer per year
+      # Hot-year cutoff of each cell's station: one layer per year
       cut_r <- rast(lapply(yrs, function(y) {
         rcl <- cutoffs %>% filter(season == s, year == y) %>% select(id, q90) %>% as.matrix()   # station id -> cutoff
         classify(rast(cf("station")), rcl)
