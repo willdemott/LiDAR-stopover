@@ -45,10 +45,6 @@
   runs <- expand.grid(response = c("vir", "hot"), season = c("spring", "autumn"), stringsAsFactors = F) %>%
     mutate(model = paste(season, response))
   
-  # Habitat classes (first word of the class label: FIA forest type group code, or Shrub): base class of the figures, and the classes with their own curves in the forest type curves
-  base_code <- "800"
-  type_codes <- c("800", "500", "Shrub")
-  
   # Response labels, and season colors (colorblind-friendly)
   ylab <- c(vir = "Predicted VIR", hot = "P(hot all 3 years)")
   cols <- c(spring = "#1b9e77", autumn = "#d95f02")
@@ -95,6 +91,9 @@
 ##################################################################
 # POINT DENSITY CHECK: percentiles of the adjusted SD of FHD per point density class (should no longer shift with point density), and its map (spring)
 {
+  # Mapview basemap options, getting rid of watermarks
+  options("mapviewBasemaps" = c("CartoDB.Positron", "CartoDB.DarkMatter", "OpenStreetMap", "Esri.WorldImagery", "OpenTopoMap"))
+  
   dat$spring %>%
     mutate(pd_class = cut(pd, c(0, 5, 10, 20, 30, 40, Inf))) %>%
     group_by(pd_class) %>%
@@ -182,7 +181,7 @@
       geom_ribbon(aes(ymin = lo, ymax = hi), fill = cols[[s]], alpha = 0.2) +
       geom_line(colour = cols[[s]], linewidth = 0.8) +
       geom_rug(data = lab(filter(rug, season == s)), aes(x = x), inherit.aes = F, sides = "b", colour = cols[[s]], alpha = 0.1) +
-      facet_wrap(vars(response, covariate), ncol = 5, scales = "free") +
+      facet_wrap(vars(interaction(response, covariate, sep = "\n", lex.order = T)), ncol = 6, scales = "free") +
       scale_x_continuous(n.breaks = 4) +
       labs(x = NULL, y = NULL, title = paste0(s, ": predicted VIR (rows 1-2) and P(hot all 3 years) (rows 3-4)"))
     print(g)
@@ -254,53 +253,6 @@
     scale_colour_manual(values = cols) +
     labs(x = NULL, y = NULL, colour = "Season")
   print(g)
-}
-
-
-
-##################################################################
-# FOREST TYPE CURVES, one figure per model: predicted VIR or P(hot all 3 years) vs each structure covariate for the listed forest types (type_codes)
-# Forest-type models, used only here: each main model plus s(v, by = ft3, k = 10) for every structure covariate; each type's curve = shared curve + its difference curve
-# Lines cover the 5th-95th percentile of the covariate; band = 95% CI of the curve's shape (level differences between types: see the forest type figure)
-{
-  # Difference curves added to the main formulas
-  by_terms <- as.formula(paste(". ~ . +", paste0("s(", covs$name[covs$structure], ", by = ft3, k = 10)", collapse = " + ")))
-  
-  # Forest-type models (same data, family, and settings as the main models; slow, like the main fits)
-  ftm <- lapply(1:nrow(runs), function(i) {
-    bam(update(fml[[runs$response[i]]], by_terms), family = fam[[runs$response[i]]], data = model_data(runs$season[i], runs$response[i]), method = "fREML", discrete = T)
-  }) %>%
-    setNames(runs$model)
-  
-  # Labels of the listed classes, and their colors (one color per habitat class, in class order, as in the maps of stopover_lidar_responses.R)
-  ft_lab <- sapply(type_codes, function(t) grep(paste0("^", t, " "), levels(dat$spring$ftype), value = T))
-  ft_col <- setNames(hcl.colors(nlevels(dat$spring$ftype), "Dark 3"), levels(dat$spring$ftype))[ft_lab]
-  
-  # One curve per model, structure covariate, and listed type
-  cur_grid <- expand.grid(model = names(ftm), covariate = covs$name[covs$structure], type = type_codes, stringsAsFactors = F) %>% left_join(runs, by = "model")
-  ftcur <- lapply(1:nrow(cur_grid), function(i) {
-    m <- ftm[[cur_grid$model[i]]]
-    v <- cur_grid$covariate[i]
-    nd <- typical(m, 100, type = ft_lab[[cur_grid$type[i]]])
-    nd$ft3[] <- cur_grid$type[i]
-    nd[[v]] <- seq(quantile(m$model[[v]], 0.05), quantile(m$model[[v]], 0.95), length.out = 100)
-    shape_ci(m, nd, v) %>% mutate(model = cur_grid$model[i], response = cur_grid$response[i], covariate = v, type = ft_lab[[cur_grid$type[i]]], x = nd[[v]])
-  }) %>%
-    bind_rows()
-  
-  for (mn in names(ftm)) {
-    g <- ftcur %>%
-      filter(model == mn) %>%
-      mutate(covariate = factor(covariate, levels = covs$name, labels = gsub("\n", " ", covs$label))) %>%
-      ggplot(aes(x = x, y = est, colour = type)) +
-      geom_ribbon(aes(ymin = lo, ymax = hi, fill = type), alpha = 0.2, colour = NA, show.legend = F) +
-      geom_line(linewidth = 0.8) +
-      facet_wrap(~ covariate, scales = "free") +
-      scale_colour_manual(values = ft_col) +
-      scale_fill_manual(values = ft_col, guide = "none") +
-      labs(x = NULL, y = ylab[[runs$response[runs$model == mn]]], colour = NULL, title = paste0(mn, ": by forest type"))
-    print(g)
-  }
 }
 
 
