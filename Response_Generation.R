@@ -92,7 +92,7 @@
 # Covariate, habitat class, flight month, and voxel layers come from the autumn model cells (fa), which have the larger radar coverage
 {
   # Mapview basemap options, getting rid of watermarks
-  options("mapviewBasemaps" = c("Esri.WorldGrayCanvas", "CartoDB.DarkMatter", "OpenStreetMap", "Esri.WorldImagery", "OpenTopoMap"))
+  options("mapviewBasemaps" = c("CartoDB.Positron", "CartoDB.DarkMatter", "OpenStreetMap", "Esri.WorldImagery", "OpenTopoMap"))
   
   # Map layer names (no "/" or "\": mapview uses each name in an HTML dependency name, which cannot contain them)
   lyr <- c(p95 = "Canopy height p95 (m)", sdp95 = "Canopy height SD (m)", rumple = "Rumple index (canopy surface per flat area)",
@@ -131,16 +131,16 @@
   print(map)
   
   # Voxel map of the autumn model cells: mean % of all returns per height layer (kept pixels); one map layer per height layer
-  vlab <- sub("-Inf", "+", paste0("% of returns ", head(brk, -1), "-", brk[-1], " m"))
-  vmap <- mapview(fa[[vl[1]]], layer.name = vlab[1], col.regions = viridis,
-                  at = unique(quantile(values(fa[[vl[1]]]), seq(0, 1, 0.1), na.rm = T)),
-                  na.color = "transparent", maxpixels = 1.4e6)
-  for (k in 2:length(vl)) {
-    vmap <- vmap + mapview(fa[[vl[k]]], layer.name = vlab[k], col.regions = viridis,
-                           at = unique(quantile(values(fa[[vl[k]]]), seq(0, 1, 0.1), na.rm = T)),
-                           na.color = "transparent", maxpixels = 1.4e6, hide = T)
-  }
-  print(vmap)
+  #vlab <- sub("-Inf", "+", paste0("% of returns ", head(brk, -1), "-", brk[-1], " m"))
+  #vmap <- mapview(fa[[vl[1]]], layer.name = vlab[1], col.regions = viridis,
+  #                at = unique(quantile(values(fa[[vl[1]]]), seq(0, 1, 0.1), na.rm = T)),
+  #                na.color = "transparent", maxpixels = 1.4e6)
+  #for (k in 2:length(vl)) {
+  #  vmap <- vmap + mapview(fa[[vl[k]]], layer.name = vlab[k], col.regions = viridis,
+  #                         at = unique(quantile(values(fa[[vl[k]]]), seq(0, 1, 0.1), na.rm = T)),
+  #                         na.color = "transparent", maxpixels = 1.4e6, hide = T)
+  #}
+  #print(vmap)
 }
 
 
