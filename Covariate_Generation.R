@@ -249,10 +249,11 @@
 
 ##################################################################
 # DISTANCE TO WATER (waterdist.tif): mean distance (m) of each 300 m cell's 10 m pixels to the nearest water (GEE: NHD and WorldCover water)
-{
-  if (!file.exists(cf("waterdist"))) {
-    g300("waterdist") %>% setNames("waterdist") %>% writeRaster(cf("waterdist"))
-  }
+if (!file.exists(cf("waterdist"))) {
+  vrt(list.files(gee_dir, pattern = "^gee_waterdist_30m.*\\.tif$", full.names = T),   # 30 m GEE tiles (means of 10 m distances) on the shared grid's extent
+      options = c("-te", xmin(grid300), ymin(grid300), xmax(grid300), ymax(grid300), "-tr", 30, 30)) %>%
+    aggregate(10, fun = "mean", na.rm = T) %>%   # 10 x 10 30 m pixels = one 300 m cell
+    setNames("waterdist") %>% writeRaster(cf("waterdist"))
 }
 
 
@@ -262,7 +263,10 @@
 # (GEE: non-woody WorldCover land other than water, in patches of at least 0.5 ha; woody = tree cover or shrubland)
 {
   if (!file.exists(cf("edgedist"))) {
-    g300("edgedist") %>% setNames("edgedist") %>% writeRaster(cf("edgedist"))
+    vrt(list.files(gee_dir, pattern = "^gee_edgedist_30m.*\\.tif$", full.names = T),   # 30 m GEE tiles (means of 10 m distances) on the shared grid's extent
+        options = c("-te", xmin(grid300), ymin(grid300), xmax(grid300), ymax(grid300), "-tr", 30, 30)) %>%
+      aggregate(10, fun = "mean", na.rm = T) %>%   # 10 x 10 30 m pixels = one 300 m cell
+      setNames("edgedist") %>% writeRaster(cf("edgedist"))
   }
 }
 
